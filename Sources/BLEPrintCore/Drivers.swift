@@ -16,7 +16,8 @@ public typealias Between = (Int, Int) async -> Bool
 public protocol PrinterDriver: AnyObject {
     var brand: Brand { get }
     var label: String { get }
-    func connect(log: @escaping Log) async throws -> String
+    /// waiting: wait for the printer to show up instead of giving up after 20 s.
+    func connect(waiting: Bool, log: @escaping Log) async throws -> String
     func disconnect()
     func printLabels(_ images: [GrayImage], _ p: PrintParams, log: @escaping Log, progress: @escaping Progress,
                      between: Between?) async throws
@@ -28,6 +29,10 @@ public func makeDriver(for device: FoundDevice) -> PrinterDriver? {
     case .supvan: return SupvanDriver(device)
     case nil: return nil
     }
+}
+
+public extension PrinterDriver {
+    func connect(log: @escaping Log) async throws -> String { try await connect(waiting: false, log: log) }
 }
 
 public enum PrinterError: LocalizedError {
@@ -48,8 +53,8 @@ public final class NelkoDriver: PrinterDriver {
 
     init(_ d: FoundDevice) { device = d }
 
-    public func connect(log: @escaping Log) async throws -> String {
-        try await ble.connect(device.peripheral)
+    public func connect(waiting: Bool, log: @escaping Log) async throws -> String {
+        try await ble.connect(device.peripheral, timeout: waiting ? nil : 20)
         guard let w = ble.characteristic([Nelko.write]), let n = ble.characteristic([Nelko.notify]) else {
             throw PrinterError.message("This doesn't look like a Nelko P21 (service FF00 not found). Found: \(ble.discoveredSummary)")
         }
@@ -145,8 +150,8 @@ public final class SupvanDriver: PrinterDriver {
 
     init(_ d: FoundDevice) { device = d }
 
-    public func connect(log: @escaping Log) async throws -> String {
-        try await ble.connect(device.peripheral)
+    public func connect(waiting: Bool, log: @escaping Log) async throws -> String {
+        try await ble.connect(device.peripheral, timeout: waiting ? nil : 20)
         guard let w = ble.characteristic(Supvan.writeUUIDs), let n = ble.characteristic(Supvan.notifyUUIDs) else {
             throw PrinterError.message("This doesn't look like a Supvan printer (no FFE9/FFE1 characteristics). Found: \(ble.discoveredSummary)")
         }

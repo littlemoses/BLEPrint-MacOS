@@ -17,13 +17,14 @@ public struct FoundDevice: Identifiable {
 }
 
 public enum BLEError: LocalizedError {
-    case off(String), timeout(String), notFound(String), disconnected
+    case off(String), timeout(String), notFound(String), disconnected, cancelled
     public var errorDescription: String? {
         switch self {
         case .off(let s): return s
         case .timeout(let s): return "Timed out: \(s)"
         case .notFound(let s): return s
         case .disconnected: return "The printer disconnected."
+        case .cancelled: return "Connecting was cancelled."
         }
     }
 }
@@ -40,6 +41,7 @@ public final class BLE: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate
     private var discoverWaiter: CheckedContinuation<Void, Error>?
     private var pendingServices = 0
     private var readyWaiter: CheckedContinuation<Void, Never>?
+    private var attempt = 0                     // bumped per connect/disconnect; stale timeouts check it
     public private(set) var peripheral: CBPeripheral?
     public var onData: ((Data) -> Void)?
     public var onDisconnect: (() -> Void)?
@@ -107,51 +109,83 @@ public final class BLE: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate
         return central.retrievePeripherals(withIdentifiers: [id]).first
     }
 
-    public func connect(_ p: CBPeripheral, timeout: Double = 20) async throws {
+    /// Connect and discover services. timeout nil = wait until the printer shows up (CoreBluetooth keeps
+    /// the request pending), until disconnect(), or until another connect() replaces it.
+    public func connect(_ p: CBPeripheral, timeout: Double? = 20) async throws {
         try await ready()
-        if let old = peripheral, old.identifier != p.identifier { central.cancelPeripheralConnection(old) }
-        peripheral = p
+        queue.sync {
+            cancelWaiters()
+            if let old = peripheral, old.identifier != p.identifier { central.cancelPeripheralConnection(old) }
+            peripheral = p
+        }
         p.delegate = self
         do {
-            try await withTimeout(timeout, "connecting") {
-                try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
-                    self.queue.async { self.connectWaiter = c; self.central.connect(p) }
-                }
-            }
+            try await wait(timeout, "connecting", \.connectWaiter) { self.central.connect(p) }
+            try await wait(15, "discovering services", \.discoverWaiter) { p.discoverServices(nil) }
+        } catch BLEError.cancelled {
+            throw BLEError.cancelled                // a newer attempt or disconnect() owns the connection now
         } catch {
             queue.sync {
-                connectWaiter?.resume(throwing: error); connectWaiter = nil
                 central.cancelPeripheralConnection(p)
+                if peripheral?.identifier == p.identifier { peripheral = nil }
             }
-            peripheral = nil
             throw error
         }
-        try await withTimeout(15, "discovering services") {
-            try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
-                self.queue.async { self.discoverWaiter = c; p.discoverServices(nil) }
+    }
+
+    /// Park a continuation in `slot` for a delegate callback to resume, run `start`, and fail with a timeout
+    /// if nothing resumed it in time.
+    private func wait(_ seconds: Double?, _ what: String, _ slot: ReferenceWritableKeyPath<BLE, CheckedContinuation<Void, Error>?>,
+                      start: @escaping () -> Void) async throws {
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+            queue.async {
+                self[keyPath: slot] = c
+                let mine = self.attempt
+                start()
+                guard let seconds else { return }
+                self.queue.asyncAfter(deadline: .now() + seconds) {
+                    guard self.attempt == mine, let w = self[keyPath: slot] else { return }
+                    self[keyPath: slot] = nil
+                    w.resume(throwing: BLEError.timeout(what))
+                }
             }
         }
     }
 
+    /// On `queue`: fail any pending connect/discover with .cancelled.
+    private func cancelWaiters() {
+        attempt += 1
+        connectWaiter?.resume(throwing: BLEError.cancelled); connectWaiter = nil
+        discoverWaiter?.resume(throwing: BLEError.cancelled); discoverWaiter = nil
+    }
+
     public func disconnect() {
-        if let p = peripheral { central.cancelPeripheralConnection(p) }
-        peripheral = nil
+        queue.sync {
+            cancelWaiters()
+            if let p = peripheral { central.cancelPeripheralConnection(p) }
+            peripheral = nil
+        }
     }
 
     public var isConnected: Bool { peripheral?.state == .connected }
 
+    // Callbacks for a peripheral that is no longer the current one (e.g. the one just replaced) are ignored.
+
     public func centralManager(_ c: CBCentralManager, didConnect p: CBPeripheral) {
+        guard p.identifier == peripheral?.identifier else { return }
         connectWaiter?.resume(); connectWaiter = nil
     }
 
     public func centralManager(_ c: CBCentralManager, didFailToConnect p: CBPeripheral, error: Error?) {
+        guard p.identifier == peripheral?.identifier else { return }
         connectWaiter?.resume(throwing: error ?? BLEError.disconnected); connectWaiter = nil
     }
 
     public func centralManager(_ c: CBCentralManager, didDisconnectPeripheral p: CBPeripheral, error: Error?) {
+        guard p.identifier == peripheral?.identifier else { return }
         connectWaiter?.resume(throwing: BLEError.disconnected); connectWaiter = nil
         discoverWaiter?.resume(throwing: BLEError.disconnected); discoverWaiter = nil
-        if p.identifier == peripheral?.identifier { onDisconnect?() }
+        onDisconnect?()
     }
 
     public func peripheral(_ p: CBPeripheral, didDiscoverServices error: Error?) {
@@ -207,16 +241,6 @@ public final class BLE: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate
 
     public func peripheralIsReady(toSendWriteWithoutResponse p: CBPeripheral) {
         readyWaiter?.resume(); readyWaiter = nil
-    }
-}
-
-func withTimeout<T>(_ seconds: Double, _ what: String, _ op: @escaping () async throws -> T) async throws -> T {
-    try await withThrowingTaskGroup(of: T.self) { g in
-        g.addTask { try await op() }
-        g.addTask { try await Task.sleep(nanoseconds: UInt64(seconds * 1e9)); throw BLEError.timeout(what) }
-        let r = try await g.next()!
-        g.cancelAll()
-        return r
     }
 }
 

@@ -38,10 +38,10 @@ struct ContentView: View {
                 .font(.caption).padding(.horizontal, 8).padding(.vertical, 4)
                 .background(RoundedRectangle(cornerRadius: 5).fill(Color.secondary.opacity(0.15)))
             Button("Find printer…") { m.showScan = true; m.scan() }.disabled(m.busy)
-            Label(m.connected ? "connected" : "disconnected", systemImage: "circle.fill")
+            Label(m.connected ? "connected" : m.waiting ? "waiting for printer" : "disconnected", systemImage: "circle.fill")
                 .labelStyle(.titleAndIcon).font(.caption.bold())
-                .foregroundStyle(m.connected ? .green : .red)
-            Button(m.connected ? "Disconnect" : "Connect") { m.toggleConnection() }
+                .foregroundStyle(m.connected ? .green : m.waiting ? .orange : .red)
+            Button(m.connected ? "Disconnect" : m.waiting ? "Stop waiting" : "Connect") { m.toggleConnection() }
                 .buttonStyle(.borderedProminent).tint(m.connected ? .gray : .green).disabled(m.busy)
         }
     }

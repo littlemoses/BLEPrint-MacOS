@@ -20,6 +20,7 @@ final class AppModel: ObservableObject {
     @Published var connected = false
     @Published var connDetail = ""
     @Published var busy = false
+    @Published var waiting = false          // waiting in the background for the printer to be switched on
     var driver: PrinterDriver?
 
     // scan
@@ -108,7 +109,9 @@ final class AppModel: ObservableObject {
                 guard let self, self.connected else { return }
                 self.connected = false
                 self.connDetail = ""
+                self.driver = nil
                 self.say("Printer disconnected.")
+                if let d = self.device { self.connect(d, auto: true) }      // reconnect when it's back
             }
         }
         Task { await reconnectLast() }
@@ -206,23 +209,24 @@ final class AppModel: ObservableObject {
         showScan = false
         device = d
         self.brand = brand
-        say(auto ? "Connecting to the last printer, \(d.name)…"
+        say(auto ? "Waiting for \(d.name) — it connects as soon as the printer is switched on."
                  : "Selected \(d.name) — \(brand.displayName) (detected by \(d.reason))")
-        busy = true
+        if auto { waiting = true } else { busy = true }
         Task {
+            defer { if auto { waiting = false } else { busy = false } }
             do {
-                connDetail = try await drv.connect(log: { [weak self] m in Task { @MainActor in self?.say(m) } })
+                connDetail = try await drv.connect(waiting: auto, log: { [weak self] m in Task { @MainActor in self?.say(m) } })
                 driver = drv
                 connected = true
                 defaults.set(d.id.uuidString, forKey: "lastPrinterID")
                 defaults.set(d.name, forKey: "lastPrinterName")
                 defaults.set(brand.rawValue, forKey: "lastPrinterBrand")
                 say("Connected to \(d.name) (\(drv.label)).")
+            } catch BLEError.cancelled {
+                // replaced by another connect, or stopped by the user
             } catch {
-                say(auto ? "\(d.name) is not reachable (switched off or out of range?) — gave up. Turn it on and press Connect."
-                         : "✖ \(error.localizedDescription)")
+                say("✖ \(error.localizedDescription)")
             }
-            busy = false
         }
     }
 
@@ -242,7 +246,10 @@ final class AppModel: ObservableObject {
     }
 
     func toggleConnection() {
-        if connected {
+        if waiting {
+            BLE.shared.disconnect()
+            say("Stopped waiting for the printer.")
+        } else if connected {
             driver?.disconnect()
             driver = nil
             connected = false
