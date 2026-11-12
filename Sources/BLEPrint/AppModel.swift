@@ -70,7 +70,7 @@ final class AppModel: ObservableObject {
     }
 
     // data
-    @Published var template = "{Name}\n{SKU}" { didSet { refreshPreview() } }
+    @Published var template = "" { didSet { refreshPreview() } }
     @Published var columns: [String] = []
     @Published var rows: [[String: String]] = []
     @Published var current = 0 { didSet { refreshPreview() } }
