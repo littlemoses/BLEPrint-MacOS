@@ -111,6 +111,7 @@ final class AppModel: ObservableObject {
                 self.say("Printer disconnected.")
             }
         }
+        Task { await reconnectLast() }
     }
 
     // MARK: brand-aware settings
@@ -200,22 +201,44 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func connect(_ d: FoundDevice) {
+    func connect(_ d: FoundDevice, auto: Bool = false) {
         guard let brand = d.brand, let drv = makeDriver(for: d) else { return }
         showScan = false
         device = d
         self.brand = brand
-        say("Selected \(d.name) — \(brand.displayName) (detected by \(d.reason))")
+        say(auto ? "Connecting to the last printer, \(d.name)…"
+                 : "Selected \(d.name) — \(brand.displayName) (detected by \(d.reason))")
         busy = true
         Task {
             do {
                 connDetail = try await drv.connect(log: { [weak self] m in Task { @MainActor in self?.say(m) } })
                 driver = drv
                 connected = true
+                defaults.set(d.id.uuidString, forKey: "lastPrinterID")
+                defaults.set(d.name, forKey: "lastPrinterName")
+                defaults.set(brand.rawValue, forKey: "lastPrinterBrand")
                 say("Connected to \(d.name) (\(drv.label)).")
-            } catch { say("✖ \(error.localizedDescription)") }
+            } catch {
+                say(auto ? "\(d.name) is not reachable (switched off or out of range?) — gave up. Turn it on and press Connect."
+                         : "✖ \(error.localizedDescription)")
+            }
             busy = false
         }
+    }
+
+    /// On launch: try the printer from last time once, without scanning.
+    func reconnectLast() async {
+        guard let s = defaults.string(forKey: "lastPrinterID"), let id = UUID(uuidString: s),
+              let brand = Brand(rawValue: defaults.string(forKey: "lastPrinterBrand") ?? "") else { return }
+        let name = defaults.string(forKey: "lastPrinterName") ?? brand.displayName
+        do {
+            guard let p = try await BLE.shared.knownPeripheral(id) else {
+                say("The last printer, \(name), is no longer known to this Mac — use Find printer….")
+                return
+            }
+            connect(FoundDevice(id: id, peripheral: p, name: name, rssi: 0, brand: brand, reason: "last used", mac: nil),
+                    auto: true)
+        } catch { say("✖ \(error.localizedDescription)") }
     }
 
     func toggleConnection() {

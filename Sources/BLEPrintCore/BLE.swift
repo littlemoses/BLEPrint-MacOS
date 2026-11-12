@@ -9,6 +9,11 @@ public struct FoundDevice: Identifiable {
     public let brand: Brand?
     public let reason: String
     public let mac: String?
+
+    public init(id: UUID, peripheral: CBPeripheral, name: String, rssi: Int, brand: Brand?, reason: String, mac: String?) {
+        self.id = id; self.peripheral = peripheral; self.name = name; self.rssi = rssi
+        self.brand = brand; self.reason = reason; self.mac = mac
+    }
 }
 
 public enum BLEError: LocalizedError {
@@ -95,6 +100,12 @@ public final class BLE: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate
     }
 
     // MARK: connect
+
+    /// A peripheral this Mac has connected to before, looked up without scanning (nil if unknown).
+    public func knownPeripheral(_ id: UUID) async throws -> CBPeripheral? {
+        try await ready()
+        return central.retrievePeripherals(withIdentifiers: [id]).first
+    }
 
     public func connect(_ p: CBPeripheral, timeout: Double = 20) async throws {
         try await ready()
