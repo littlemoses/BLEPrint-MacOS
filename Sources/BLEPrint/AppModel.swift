@@ -275,7 +275,7 @@ final class AppModel: ObservableObject {
 
     func printCurrent() {
         let img = render(current)
-        say("Printing row \(current + 1) ×\(max(1, copies))\(continuousActive ? " (continuous)" : "")…")
+        say("Printing \(rows.isEmpty ? "label" : "row \(current + 1)") ×\(max(1, copies))\(continuousActive ? " (continuous)" : "")…")
         run(Array(repeating: img, count: max(1, copies)))
     }
 

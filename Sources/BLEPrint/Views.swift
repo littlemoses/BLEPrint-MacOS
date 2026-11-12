@@ -137,11 +137,12 @@ struct ContentView: View {
                     }.padding(6)
                 }
                 HStack {
-                    Button { m.printCurrent() } label: { Text("Print this row").frame(maxWidth: .infinity) }
+                    Button { m.printCurrent() } label: { Text(m.rows.isEmpty ? "Print" : "Print this row").frame(maxWidth: .infinity) }
                         .buttonStyle(.borderedProminent).controlSize(.large)
-                    Button { if m.rows.isEmpty { m.say("Open a CSV first.") } else { m.confirmPrintAll = true } } label: {
-                        Text("Print ALL rows").frame(maxWidth: .infinity)
-                    }.buttonStyle(.borderedProminent).tint(.orange).controlSize(.large)
+                    if !m.rows.isEmpty {
+                        Button { m.confirmPrintAll = true } label: { Text("Print ALL rows").frame(maxWidth: .infinity) }
+                            .buttonStyle(.borderedProminent).tint(.orange).controlSize(.large)
+                    }
                 }.disabled(m.busy || !m.connected)
             }.padding(.trailing, 6)
         }
