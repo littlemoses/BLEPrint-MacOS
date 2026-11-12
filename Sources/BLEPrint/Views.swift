@@ -148,8 +148,7 @@ struct ContentView: View {
     }
 
     func num(_ v: Binding<Double>) -> some View {
-        TextField("", value: v, format: .number.precision(.fractionLength(0...1))).frame(width: 64)
-            .textFieldStyle(.roundedBorder)
+        NumberField(value: v).frame(width: 64).textFieldStyle(.roundedBorder)
     }
 
     // MARK: preview + log
@@ -179,6 +178,27 @@ struct ContentView: View {
             }
             ProgressView(value: Double(m.progress.value), total: Double(m.progress.total))
         }
+    }
+}
+
+/// Number field that can be cleared while typing: the value follows the text whenever it parses, and the
+/// text is reformatted only when editing ends or the value changes elsewhere (e.g. a stepper).
+struct NumberField: View {
+    @Binding var value: Double
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    static let style = FloatingPointFormatStyle<Double>.number.precision(.fractionLength(0...1))
+    func parse(_ t: String) -> Double? { try? Double(t.trimmingCharacters(in: .whitespaces), format: .number) }
+
+    var body: some View {
+        TextField("", text: $text)
+            .focused($focused)
+            .onAppear { text = value.formatted(Self.style) }
+            .onChange(of: text) { t in if let v = parse(t), v != value { value = v } }
+            .onChange(of: value) { v in if parse(text) != v { text = v.formatted(Self.style) } }
+            .onChange(of: focused) { f in if !f { text = value.formatted(Self.style) } }
+            .onSubmit { text = value.formatted(Self.style) }
     }
 }
 
