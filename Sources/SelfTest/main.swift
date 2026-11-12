@@ -26,6 +26,11 @@ if let i = CommandLine.arguments.firstIndex(of: "--render"), i + 1 < CommandLine
     save(Render.supvanQR("BLEPrint\nSKU-1234", lengthMM: nil, showText: true), "sv_qr_text")
     save(Render.nelkoText("Hello World!", headMM: 15, feedMM: 40).rotatedCW(), "nk_text_view")
     save(Render.nelkoQR("BLEPrint", headMM: 15, feedMM: 40, showText: true).rotatedCW(), "nk_qr_view")
+    save(Render.supvanText("Garage\nShelf 3", lengthMM: 40, style: TextStyle(family: "Times New Roman", bold: false,
+                                                                         align: .left, border: true)), "sv_style_left_border")
+    save(Render.supvanText("Small 12 pt", lengthMM: nil, style: TextStyle(family: "Helvetica", sizePt: 12)), "sv_style_12pt")
+    save(Render.supvanText("Right", lengthMM: 40, style: TextStyle(sizePt: 18, align: .right, border: true)), "sv_style_right")
+    save(Render.nelkoText("Framed", headMM: 15, feedMM: 40, style: TextStyle(border: true)).rotatedCW(), "nk_style_border")
     print("qr modules for pardostech:", Render.qrMatrix("https://pardostech.com")?.count ?? -1)
     exit(0)
 }

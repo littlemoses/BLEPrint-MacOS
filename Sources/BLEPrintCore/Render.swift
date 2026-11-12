@@ -3,18 +3,48 @@ import CoreImage
 import CoreText
 import Foundation
 
+/// How label text looks: font, weight, size, alignment and an optional frame.
+public struct TextStyle: Equatable {
+    public enum Align: Int, CaseIterable, Identifiable {
+        case left, center, right
+        public var id: Int { rawValue }
+    }
+
+    public var family = "Arial"
+    public var bold = true
+    /// Font size in points (1/72 inch); nil = as large as the label allows. A size that doesn't fit is reduced.
+    public var sizePt: Double?
+    public var align = Align.center
+    /// Frame around the label (text mode only).
+    public var border = false
+
+    public init(family: String = "Arial", bold: Bool = true, sizePt: Double? = nil, align: Align = .center,
+                border: Bool = false) {
+        self.family = family; self.bold = bold; self.sizePt = sizePt; self.align = align; self.border = border
+    }
+
+    /// Both printers print 8 dots per mm (203 dpi).
+    public static let dotsPerPt = 8 * 25.4 / 72
+    static let borderLine = 3, borderPad = 5
+
+    func font(size: CGFloat) -> NSFont {
+        let fm = NSFontManager.shared
+        let traits: NSFontTraitMask = bold ? .boldFontMask : .unboldFontMask
+        return fm.font(withFamily: family, traits: traits, weight: bold ? 9 : 5, size: size)
+            ?? fm.font(withFamily: family, traits: [], weight: 5, size: size)
+            ?? (bold ? .boldSystemFont(ofSize: size) : .systemFont(ofSize: size))
+    }
+}
+
 /// Label rendering: text fitted by its real ink box, and QR codes. Mirrors bleprint.py, supvan.py
 /// and qrlabel.py.
 public enum Render {
-    static let font = "Arial-BoldMT"
-
-    /// Draw (multi-line, centred) text at `size` points and return just its ink, or nil if blank.
-    static func inkText(_ text: String, size: CGFloat) -> GrayImage? {
-        let ctFont = CTFontCreateWithName((NSFont(name: font, size: size)?.fontName ?? "Helvetica-Bold") as CFString, size, nil)
+    /// Draw (multi-line) text at `size` points and return just its ink, or nil if blank.
+    static func inkText(_ text: String, size: CGFloat, style: TextStyle) -> GrayImage? {
         let para = NSMutableParagraphStyle()
-        para.alignment = .center
+        para.alignment = [.left, .center, .right][style.align.rawValue]
         let attr = NSAttributedString(string: text.isEmpty ? " " : text, attributes: [
-            .font: ctFont, .foregroundColor: NSColor.black, .paragraphStyle: para,
+            .font: style.font(size: size) as CTFont, .foregroundColor: NSColor.black, .paragraphStyle: para,
         ])
         let setter = CTFramesetterCreateWithAttributedString(attr)
         let fit = CTFramesetterSuggestFrameSizeWithConstraints(setter, CFRange(), nil,
@@ -32,57 +62,75 @@ public enum Render {
         return img.crop(x: b.x, y: b.y, w: b.w, h: b.h)
     }
 
-    /// Largest rendering of `text` whose ink fits within maxW x maxH (font size capped at maxSize).
-    public static func fittedText(_ text: String, maxW: Int, maxH: Int, maxSize: CGFloat = 400) -> GrayImage? {
-        guard maxW > 2, maxH > 2, let probe = inkText(text, size: 100) else { return nil }
-        var size = min(maxSize, 100 * min(CGFloat(maxW) / CGFloat(probe.width), CGFloat(maxH) / CGFloat(probe.height)))
+    /// Rendering of `text` whose ink fits within maxW x maxH: at the style's size if it fits, otherwise
+    /// the largest that does (font size capped at maxSize).
+    public static func fittedText(_ text: String, maxW: Int, maxH: Int, maxSize: CGFloat = 400,
+                                  style: TextStyle = TextStyle()) -> GrayImage? {
+        guard maxW > 2, maxH > 2 else { return nil }
+        var cap = maxSize
+        if let pt = style.sizePt {
+            cap = min(maxSize, CGFloat(pt * TextStyle.dotsPerPt))
+            if let img = inkText(text, size: cap, style: style), img.width <= maxW && img.height <= maxH { return img }
+        }
+        guard let probe = inkText(text, size: 100, style: style) else { return nil }
+        var size = min(cap, 100 * min(CGFloat(maxW) / CGFloat(probe.width), CGFloat(maxH) / CGFloat(probe.height)))
         for _ in 0..<12 {
-            guard size >= 4, let img = inkText(text, size: size) else { return nil }
+            guard size >= 4, let img = inkText(text, size: size, style: style) else { return nil }
             if img.width <= maxW && img.height <= maxH { return img }
             size *= 0.97
         }
         return nil
     }
 
-    static func centered(_ ink: GrayImage?, in canvas: inout GrayImage) {
-        guard let ink else { return }
-        canvas.paste(ink, x: (canvas.width - ink.width) / 2, y: (canvas.height - ink.height) / 2)
+    /// Text label `height` dots tall and `width` long (nil = as long as the text). `hMargin` stays blank at
+    /// each end, `vMargin` at top and bottom; the frame, if any, sits on those margins.
+    static func textLabel(_ text: String, width: Int?, height: Int, hMargin: Int, vMargin: Int, maxSize: CGFloat,
+                          style: TextStyle) -> GrayImage {
+        let inset = style.border ? TextStyle.borderLine + TextStyle.borderPad : 0
+        let ink = fittedText(text, maxW: width.map { $0 - 2 * (hMargin + inset) } ?? 8000,
+                             maxH: height - 2 * (vMargin + inset), maxSize: maxSize, style: style)
+        let w = width ?? ink.map { $0.width + 2 * (hMargin + inset) } ?? 16
+        var canvas = GrayImage(width: w, height: height)
+        if let ink {
+            let x = [hMargin + inset, (w - ink.width) / 2, w - hMargin - inset - ink.width][style.align.rawValue]
+            canvas.paste(ink, x: x, y: (height - ink.height) / 2)
+        }
+        if style.border {
+            let l = TextStyle.borderLine, bw = w - 2 * hMargin, bh = height - 2 * vMargin
+            canvas.fillRect(x: hMargin, y: vMargin, w: bw, h: l)
+            canvas.fillRect(x: hMargin, y: height - vMargin - l, w: bw, h: l)
+            canvas.fillRect(x: hMargin, y: vMargin, w: l, h: bh)
+            canvas.fillRect(x: w - hMargin - l, y: vMargin, w: l, h: bh)
+        }
+        return canvas
     }
 
     // MARK: Nelko (TSPL): landscape canvas, rotated to head_dots wide x feed_dots tall
 
     /// Canvas = the 96 printable head dots (centred on the label) x the label length; text stays 6 dots
     /// inside the head and 2.25 mm from each end of the label.
-    public static func nelkoText(_ text: String, headMM: Double, feedMM: Double) -> GrayImage {
-        let hd = Nelko.printDots(headMM), fd = Nelko.dots(feedMM)
-        var canvas = GrayImage(width: fd, height: hd)
-        centered(fittedText(text, maxW: fd - 2 * Nelko.feedMarginDots, maxH: hd - 12, maxSize: 200), in: &canvas)
-        return canvas.rotatedCCW()
+    public static func nelkoText(_ text: String, headMM: Double, feedMM: Double, style: TextStyle = TextStyle()) -> GrayImage {
+        textLabel(text, width: Nelko.dots(feedMM), height: Nelko.printDots(headMM), hMargin: Nelko.feedMarginDots,
+                  vMargin: 6, maxSize: 200, style: style).rotatedCCW()
     }
 
-    public static func nelkoQR(_ text: String, headMM: Double, feedMM: Double, showText: Bool) -> GrayImage {
+    public static func nelkoQR(_ text: String, headMM: Double, feedMM: Double, showText: Bool,
+                               style: TextStyle = TextStyle()) -> GrayImage {
         qrLabel(text, height: Nelko.printDots(headMM), width: Nelko.dots(feedMM), margin: Nelko.feedMarginDots,
-                showText: showText).rotatedCCW()
+                showText: showText, style: style).rotatedCCW()
     }
 
     // MARK: Supvan (88 dots tall, width = length along the tape)
 
     /// lengthMM nil = fit the label to the text, edge to edge (1 mm margin each end).
-    public static func supvanText(_ text: String, lengthMM: Double?) -> GrayImage {
-        let h = Supvan.printDots, margin = 8
-        if let lengthMM {
-            var canvas = GrayImage(width: max(8, Int((lengthMM * 8).rounded())), height: h)
-            centered(fittedText(text, maxW: canvas.width - 2 * margin, maxH: h - 2), in: &canvas)
-            return canvas
-        }
-        guard let ink = fittedText(text, maxW: 8000, maxH: h - 2) else { return GrayImage(width: 16, height: h) }
-        var canvas = GrayImage(width: ink.width + 2 * margin, height: h)
-        centered(ink, in: &canvas)
-        return canvas
+    public static func supvanText(_ text: String, lengthMM: Double?, style: TextStyle = TextStyle()) -> GrayImage {
+        textLabel(text, width: lengthMM.map { max(8, Int(($0 * 8).rounded())) }, height: Supvan.printDots,
+                  hMargin: 8, vMargin: 1, maxSize: 400, style: style)
     }
 
-    public static func supvanQR(_ text: String, lengthMM: Double?, showText: Bool) -> GrayImage {
-        qrLabel(text, height: Supvan.printDots, width: lengthMM.map { Int(($0 * 8).rounded()) }, showText: showText)
+    public static func supvanQR(_ text: String, lengthMM: Double?, showText: Bool, style: TextStyle = TextStyle()) -> GrayImage {
+        qrLabel(text, height: Supvan.printDots, width: lengthMM.map { Int(($0 * 8).rounded()) }, showText: showText,
+                style: style)
     }
 
     // MARK: QR
@@ -114,13 +162,13 @@ public enum Render {
 
     /// QR on the left at full height, text on the right. width nil = fit to content.
     public static func qrLabel(_ text: String, height: Int, width: Int?, margin: Int = 8, gap: Int = 10,
-                               showText: Bool = true) -> GrayImage {
+                               showText: Bool = true, style: TextStyle = TextStyle()) -> GrayImage {
         let t = text.trimmingCharacters(in: .newlines)
         let qr = qrImage(t, height: height)
         var ink: GrayImage?
         if showText && !t.isEmpty {
             let room = width.map { $0 - 2 * margin - qr.width - gap } ?? 8000
-            if room > 16 { ink = fittedText(t, maxW: room, maxH: height - 4) }
+            if room > 16 { ink = fittedText(t, maxW: room, maxH: height - 4, style: style) }
         }
         let content = qr.width + (ink.map { gap + $0.width } ?? 0)
         let w = width.map { max($0, 8) } ?? content + 2 * margin

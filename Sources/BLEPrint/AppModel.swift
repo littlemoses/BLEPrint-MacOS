@@ -43,6 +43,32 @@ final class AppModel: ObservableObject {
         didSet { defaults.set(mode.rawValue, forKey: "printMode"); refreshPreview() }
     }
 
+    // text style
+    static let fontFamilies = NSFontManager.shared.availableFontFamilies.sorted()
+    @Published var fontFamily = UserDefaults.standard.string(forKey: "fontFamily") ?? "Arial" {
+        didSet { defaults.set(fontFamily, forKey: "fontFamily"); refreshPreview() }
+    }
+    @Published var bold = UserDefaults.standard.object(forKey: "bold") as? Bool ?? true {
+        didSet { defaults.set(bold, forKey: "bold"); refreshPreview() }
+    }
+    @Published var autoSize = UserDefaults.standard.object(forKey: "autoSize") as? Bool ?? true {
+        didSet { defaults.set(autoSize, forKey: "autoSize"); refreshPreview() }
+    }
+    @Published var sizePt = UserDefaults.standard.object(forKey: "sizePt") as? Double ?? 20 {
+        didSet { defaults.set(sizePt, forKey: "sizePt"); refreshPreview() }
+    }
+    @Published var align = TextStyle.Align(rawValue: UserDefaults.standard.object(forKey: "align") as? Int ?? 1) ?? .center {
+        didSet { defaults.set(align.rawValue, forKey: "align"); refreshPreview() }
+    }
+    @Published var border = UserDefaults.standard.bool(forKey: "border") {
+        didSet { defaults.set(border, forKey: "border"); refreshPreview() }
+    }
+
+    var style: TextStyle {
+        TextStyle(family: fontFamily, bold: bold, sizePt: autoSize ? nil : max(4, sizePt), align: align,
+                  border: border && mode == .text)
+    }
+
     // data
     @Published var template = "{Name}\n{SKU}" { didSet { refreshPreview() } }
     @Published var columns: [String] = []
@@ -96,12 +122,12 @@ final class AppModel: ObservableObject {
         let t = text(for: index)
         switch brand {
         case .nelko:
-            return mode == .text ? Render.nelkoText(t, headMM: headMM, feedMM: feedMM)
-                : Render.nelkoQR(t, headMM: headMM, feedMM: feedMM, showText: mode == .qrText)
+            return mode == .text ? Render.nelkoText(t, headMM: headMM, feedMM: feedMM, style: style)
+                : Render.nelkoQR(t, headMM: headMM, feedMM: feedMM, showText: mode == .qrText, style: style)
         case .supvan:
             let length: Double? = fitActive ? nil : feedMM
-            return mode == .text ? Render.supvanText(t, lengthMM: length)
-                : Render.supvanQR(t, lengthMM: length, showText: mode == .qrText)
+            return mode == .text ? Render.supvanText(t, lengthMM: length, style: style)
+                : Render.supvanQR(t, lengthMM: length, showText: mode == .qrText, style: style)
         }
     }
 

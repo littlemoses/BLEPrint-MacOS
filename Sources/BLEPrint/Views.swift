@@ -85,6 +85,39 @@ struct ContentView: View {
                         }
                     }.padding(6)
                 }
+                GroupBox("Text style") {
+                    Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                        GridRow {
+                            Text("Font")
+                            Picker("", selection: $m.fontFamily) {
+                                ForEach(AppModel.fontFamilies, id: \.self) { Text($0).tag($0) }
+                            }.labelsHidden().frame(maxWidth: 220)
+                            Toggle("Bold", isOn: $m.bold)
+                        }
+                        GridRow {
+                            Text("Size")
+                            HStack {
+                                Toggle("Auto (fill the label)", isOn: $m.autoSize)
+                                num($m.sizePt).disabled(m.autoSize)
+                                Stepper("", value: $m.sizePt, in: 4...200).labelsHidden().disabled(m.autoSize)
+                                Text("pt").foregroundStyle(.secondary)
+                            }.gridCellColumns(2)
+                        }
+                        GridRow {
+                            Text("Align")
+                            Picker("", selection: $m.align) {
+                                Image(systemName: "text.alignleft").tag(TextStyle.Align.left)
+                                Image(systemName: "text.aligncenter").tag(TextStyle.Align.center)
+                                Image(systemName: "text.alignright").tag(TextStyle.Align.right)
+                            }.labelsHidden().pickerStyle(.segmented).frame(width: 120)
+                            Toggle("Border", isOn: $m.border).disabled(m.mode != .text)
+                                .help(m.mode == .text ? "" : "Only for text labels.")
+                        }
+                    }.padding(6)
+                    Text("A fixed size that doesn't fit the label is reduced until it does. On 12 mm tape, a single line fits up to about 30 pt.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        .padding([.horizontal, .bottom], 6)
+                }
                 GroupBox("Template — click a column to insert {Column}") {
                     VStack(alignment: .leading, spacing: 8) {
                         if !m.columns.isEmpty {
