@@ -29,16 +29,31 @@ final class AppModel: ObservableObject {
     @Published var showAllDevices = false
 
     // settings
-    @Published var headMM = 14.0 { didSet { refreshPreview() } }
-    @Published var feedMM = 40.0 { didSet { refreshPreview() } }
-    @Published var gapMM = Nelko.defaultGapMM          // P21 14 x 40 mm rolls have a 5 mm gap
-    @Published var density = 10
-    @Published var speed = 3
-    @Published var copies = 1
+    @Published var headMM = UserDefaults.standard.object(forKey: "headMM") as? Double ?? 14.0 {
+        didSet { defaults.set(headMM, forKey: "headMM"); refreshPreview() }
+    }
+    @Published var feedMM = UserDefaults.standard.object(forKey: "feedMM") as? Double ?? 40.0 {
+        didSet { defaults.set(feedMM, forKey: "feedMM"); refreshPreview() }
+    }
+    // P21 14 x 40 mm rolls have a 5 mm gap
+    @Published var gapMM = UserDefaults.standard.object(forKey: "gapMM") as? Double ?? Nelko.defaultGapMM {
+        didSet { defaults.set(gapMM, forKey: "gapMM") }
+    }
+    @Published var density = UserDefaults.standard.object(forKey: "density") as? Int ?? 10 {
+        didSet { defaults.set(density, forKey: "density") }
+    }
+    @Published var speed = UserDefaults.standard.object(forKey: "speed") as? Int ?? 3 {
+        didSet { defaults.set(speed, forKey: "speed") }
+    }
+    @Published var copies = UserDefaults.standard.object(forKey: "copies") as? Int ?? 1 {
+        didSet { defaults.set(copies, forKey: "copies") }
+    }
     @Published var fitLength = UserDefaults.standard.object(forKey: "fitLength") as? Bool ?? true {
         didSet { defaults.set(fitLength, forKey: "fitLength"); refreshPreview() }
     }
-    @Published var continuous = false
+    @Published var continuous = UserDefaults.standard.bool(forKey: "continuous") {
+        didSet { defaults.set(continuous, forKey: "continuous") }
+    }
     @Published var mode: PrintMode = PrintMode(rawValue: UserDefaults.standard.integer(forKey: "printMode")) ?? .text {
         didSet { defaults.set(mode.rawValue, forKey: "printMode"); refreshPreview() }
     }
@@ -70,7 +85,9 @@ final class AppModel: ObservableObject {
     }
 
     // data
-    @Published var template = "" { didSet { refreshPreview() } }
+    @Published var template = UserDefaults.standard.string(forKey: "template") ?? "" {
+        didSet { defaults.set(template, forKey: "template"); refreshPreview() }
+    }
     @Published var columns: [String] = []
     @Published var rows: [[String: String]] = []
     @Published var current = 0 { didSet { refreshPreview() } }
