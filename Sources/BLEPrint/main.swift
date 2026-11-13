@@ -1,7 +1,13 @@
 import AppKit
 import SwiftUI
 
+// Single-window app: closing the window quits, instead of leaving a Dock icon that can't reopen it.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+}
+
 struct BLEPrintApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = AppModel()
 
     var body: some Scene {
